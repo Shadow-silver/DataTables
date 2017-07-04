@@ -1047,6 +1047,12 @@
 			_fnCallbackReg( oSettings, 'aoInitComplete',       oInit.fnInitComplete,      'user' );
 			_fnCallbackReg( oSettings, 'aoPreDrawCallback',    oInit.fnPreDrawCallback,   'user' );
 			
+			//*******************************************************************
+			//******************************************************************
+			_fnCallbackReg( oSettings, 'aoPreRenderCallback',    oInit.fnPreDrawCallback,   'user' );
+			_fnCallbackReg( oSettings, 'aoPreRedrawCallback',    oInit.fnPreDrawCallback,   'user' );
+			//*******************************************************************
+			//******************************************************************
 			oSettings.rowIdFn = _fnGetObjectDataFn( oInit.rowId );
 			
 			/* Browser support detection */
@@ -3412,7 +3418,7 @@
 		var aiDisplay = oSettings.aiDisplay;
 	
 		oSettings.bDrawing = true;
-	
+		oSettings.anOriginalRows=[];
 		/* Check and see if we have an initial draw position from state saving */
 		if ( iInitDisplayStart !== undefined && iInitDisplayStart !== -1 )
 		{
@@ -3431,6 +3437,7 @@
 		/* Server-side processing draw intercept */
 		if ( oSettings.bDeferLoading )
 		{
+
 			oSettings.bDeferLoading = false;
 			oSettings.iDraw++;
 			_fnProcessingDisplay( oSettings, false );
@@ -3457,7 +3464,7 @@
 				{
 					_fnCreateTr( oSettings, iDataIndex );
 				}
-	
+				
 				var nRow = aoData.nTr;
 	
 				/* Remove the old striping classes and then add the new one */
@@ -3470,13 +3477,17 @@
 						aoData._sRowStripe = sStripe;
 					}
 				}
-	
+				
 				// Row callback functions - might want to manipulate the row
 				// iRowCount and j are not currently documented. Are they at all
 				// useful?
 				_fnCallbackFire( oSettings, 'aoRowCallback', null,
 					[nRow, aoData._aData, iRowCount, j] );
-	
+				//var r = $('<tr></tr').html("<td colspan='15'></td>");
+				//anRows.push($("<tr><td colspan='15'></td></tr>"));
+				//anRows.push(r.get(0));
+				//console.log(r.get(0));
+				oSettings.anOriginalRows.push({'index':j,'real_index':iDataIndex,'row':nRow});
 				anRows.push( nRow );
 				iRowCount++;
 			}
@@ -3501,7 +3512,16 @@
 					'class':   oSettings.oClasses.sRowEmpty
 				} ).html( sZero ) )[0];
 		}
-	
+		oSettings.anRows=anRows;
+		 
+		//*********************************************************************************
+		//*********************************************************************************
+		//*********************************************************************************
+		_fnCallbackFire( oSettings, 'aoPreRenderCallback', 'prerender', [oSettings] );
+		//*********************************************************************************
+		//*********************************************************************************
+		//*********************************************************************************
+
 		/* Header and footer callbacks */
 		_fnCallbackFire( oSettings, 'aoHeaderCallback', 'header', [ $(oSettings.nTHead).children('tr')[0],
 			_fnGetDataMaster( oSettings ), iDisplayStart, iDisplayEnd, aiDisplay ] );
@@ -3512,7 +3532,7 @@
 		var body = $(oSettings.nTBody);
 	
 		body.children().detach();
-		body.append( $(anRows) );
+		body.append( $(oSettings.anRows) );
 	
 		/* Call all required callback functions for the end of a draw */
 		_fnCallbackFire( oSettings, 'aoDrawCallback', 'draw', [oSettings] );
@@ -3537,7 +3557,8 @@
 			features = settings.oFeatures,
 			sort     = features.bSort,
 			filter   = features.bFilter;
-	
+		_fnCallbackFire( settings, 'aoPreRedrawCallback', 'preredraw', [settings] );
+
 		if ( sort ) {
 			_fnSort( settings );
 		}
@@ -5912,6 +5933,149 @@
 	}
 	
 	/**
+	 * Make groups of row based on columns or data attribute choosed
+	 *  @param {object} oSettings dataTables settings object
+	 */
+	function _fnGroup(oSettings) {
+		var i,j,
+			groups={},
+			grouped=[],
+			aoData = oSettings.aoData,
+			groups_tmp={};
+
+		var mg_settings = oSettings.oInit.multiGrouping;
+		
+		if (mg_settings) {
+			var iColNumber = oSettings.aoColumns.length;
+			//var datas = aoData;
+			//@todo Add check to column inserted and the possibility to use a column selector
+
+			$(mg_settings).each(function(i,e) {
+
+				groups[e['data']]={};//{'end-label':'', 'start-label':'','data':{}};
+				//groups_tmp[e['data']]={'last':-1,'shift':0};
+			});
+
+			var start_label ='';
+			var end_label = '';
+			$(aoData).each( function (i,d) {
+				aoData[i]._oaGroup={};
+				grouped[i]=[];
+				//cycle througr each group
+				$(mg_settings).each( function(j,e) {
+
+					if (!( d._aData[e['data']] in groups[e['data']] )) {
+						groups[e['data']][d._aData[e['data']]] ={};
+						start_label = d._aData[e['data']];
+						end_label = d._aData[e['data']];
+
+						//call labels render function
+						if ('start-label' in e)		
+							start_label = e['start-label'](d._aData);
+						if ('end-label' in e)		
+							end_label = e['end-label'](d._aData);
+						
+						groups[e['data']][d._aData[e['data']]]['start-label']=start_label;
+						groups[e['data']][d._aData[e['data']]]['end-label']=end_label;
+						groups[e['data']][d._aData[e['data']]]['data']=[];
+					}
+
+					groups[e['data']][d._aData[e['data']]]['data'].push(i);										
+					aoData[i]._oaGroup[e['data']]=d._aData[e['data']];
+				});	
+				
+			});		
+		}
+		oSettings.aoGroups=groups;
+		return grouped;
+	}
+
+	function _fnSortByGroup(oSettings,grouped) {
+		var	i, j, k ,
+			aoData = oSettings.aoData,
+			mg_settings = oSettings.oInit.multiGrouping,
+			displayMaster = oSettings.aiDisplayMaster;
+
+				if (displayMaster.length) {					
+					if (mg_settings) { //if set grouping
+							//$(mg_settings).each( function (j, g) {
+							for (var j=0;j<mg_settings.length;j++) {
+								var g = mg_settings[j];
+								//console.log("MG column:"  + j + ' ' + g['data']);	
+								for (i=0; i < displayMaster.length; i++ ) {
+									var idx = displayMaster[i]; //identifier pre-sorting
+									var data = aoData[idx]; //data of the item
+									var group_key =  data._oaGroup[g['data']] ; //ids member of the group before the sorting
+									var group_members=oSettings.aoGroups[g['data']][group_key]['data']; //extract member of the group
+
+									if (group_members.length > 1 ) {				
+										//console.log(i + "  " + aoData[idx]._aData['instance'])					
+										for (k=0; k < group_members.length; k++) {
+											//move all the member of the group near the first
+											var gm_idx =  group_members[k];											
+
+											if (gm_idx != idx) { //work with the other group member
+												if ( grouped[gm_idx].indexOf( g['data']) == -1 ) { //check if the item was already moved with current column
+													var can_move = true;
+													if ( grouped[gm_idx].length != 0 ) { //if already grouped check if is possible to move it
+														//check if idx and gm_idx are members of the same groups
+														if ( _fnArrayDifference(grouped[idx], grouped[gm_idx], g['data']) )  { //1. first check if grouped by same column
+															//2. second check if same column belong to different group
+															for (var w=0; w < grouped[gm_idx].length; w++) {
+																if (aoData[gm_idx]._oaGroup[grouped[gm_idx][w]] != data._oaGroup[grouped[gm_idx][w]]) {
+																	can_move = false;
+																	//console.log("\tItem already moved with different column " + i + " " + aoData[gm_idx]._aData['instance']);
+																	break;
+																}
+															}	
+														} else {
+															can_move = false;
+															//console.log("\tItem already moved with different column " + i + " " + aoData[gm_idx]._aData['instance']);
+														}
+													} //else if already grouped make no action
+												
+													if (can_move) {
+														
+														var destination_groups = grouped[displayMaster[i+1]];
+
+														var to_move = displayMaster[displayMaster.indexOf(gm_idx)];
+														var item_at_new_position = displayMaster[i+1];
+														//console.log("\t " + (i+1) +  "(" + item_at_new_position + "-"  + aoData[item_at_new_position]._aData['instance'] + ")"  + "<- " + (i+1) + "(" + to_move + "-"  + aoData[gm_idx]._aData['instance'] + ")");
+														for (var w=0; w < destination_groups.length; w++)  {															
+															var check_group = destination_groups[w]; //current group to check
+															if (check_group != g['data']) {
+																//console.log(aoData[gm_idx]._aData['instance']  + ">" +  aoData[item_at_new_position]._oaGroup[check_group]  + " - " +  aoData[to_move]._oaGroup[check_group]);
+																if ( aoData[item_at_new_position]._oaGroup[check_group] != aoData[gm_idx]._oaGroup[check_group] ) {
+																	can_move = false; //remove authorization to move item
+																	break;
+																}
+															}
+														}
+
+														if (can_move) {
+															displayMaster.splice(displayMaster.indexOf(gm_idx),1); //delete the element in the original position
+															displayMaster.splice(i+1, 0, to_move); //insert just after the last element
+															grouped[gm_idx].push(g['data']);
+															//console.log("Moved " + gm_idx + " " + aoData[gm_idx]._aData['instance'] + ' to position ' + (i+1) + ' for group ' + aoData[gm_idx]._aData[g['data']]);
+															//skip element just moved
+															i++;
+														}
+													}													
+												} else {
+													//console.log("\tItem already moved with same column " + i + " " + aoData[gm_idx]._aData['instance']);
+												}
+											} else { //record the happened move
+												grouped[gm_idx].push(g['data']);
+											}
+										}
+									}						
+								}						
+							}//);							
+					}
+				}
+	}
+
+	/**
 	 * Change the order of the table
 	 *  @param {object} oSettings dataTables settings object
 	 *  @memberof DataTable#oApi
@@ -5930,16 +6094,25 @@
 			formatters = 0,
 			sortCol,
 			displayMaster = oSettings.aiDisplayMaster,
-			aSort;
-	
+			aSort,
+			grouped=[],
+			groups_tmp={};
+		
 		// Resolve any column types that are unknown due to addition or invalidation
 		// @todo Can this be moved into a 'data-ready' handler which is called when
 		//   data is going to be used in the table?
-		_fnColumnTypes( oSettings );
-	
+		_fnColumnTypes( oSettings );		
 		aSort = _fnSortFlatten( oSettings );
-	
+
+		//      Multi group addition
+		//********************************
+		//********************************
+		var mg_settings = oSettings.oInit.multiGrouping;
+		grouped= _fnGroup(oSettings);
+
+		 
 		for ( i=0, ien=aSort.length ; i<ien ; i++ ) {
+
 			sortCol = aSort[i];
 	
 			// Track if we can use the fast sort algorithm
@@ -5982,14 +6155,14 @@
 			 * methods which do not have a pre-sort formatting function.
 			 */
 			if ( formatters === aSort.length ) {
+
 				// All sort types have formatting functions
 				displayMaster.sort( function ( a, b ) {
 					var
 						x, y, k, test, sort,
 						len=aSort.length,
 						dataA = aoData[a]._aSortData,
-						dataB = aoData[b]._aSortData;
-	
+						dataB = aoData[b]._aSortData;					
 					for ( k=0 ; k<len ; k++ ) {
 						sort = aSort[k];
 	
@@ -6004,8 +6177,14 @@
 	
 					x = aiOrig[a];
 					y = aiOrig[b];
-					return x<y ? -1 : x>y ? 1 : 0;
+					return x<y ? -1 : x > y ? 1 : 0;
 				} );
+				
+
+				//      Multi group addition
+				//********************************
+				//********************************
+				_fnSortByGroup(oSettings,grouped);
 			}
 			else {
 				// Depreciated - remove in 1.11 (providing a plug-in option)
@@ -6037,11 +6216,27 @@
 				} );
 			}
 		}
-	
+		
+				//displayMaster[2]=0;
 		/* Tell the draw function that we have sorted the data */
 		oSettings.bSorted = true;
 	}
 	
+	function _fnArrayDifference(a,b,skip_data) {
+		var i = 0;
+		//check if have different elements
+		for (i=0; i < a.length; i++) {
+			if (a[i] != skip_data && b.indexOf(a[i]) == -1) {
+				return false;
+			}
+		}
+		for (i=0; i < b.length; i++) {
+			if (b[i] != skip_data && a.indexOf(b[i]) == -1) {
+				return false;
+			}
+		}
+		return true;
+	}
 	
 	function _fnSortAria ( settings )
 	{
@@ -13315,7 +13510,13 @@
 		 *  @default []
 		 */
 		"aoFooterCallback": [],
-	
+
+		/**
+		 * Callback function for the footer on each draw.
+		 *  @type array
+		 *  @default []
+		 */
+		"aoPreRenderCallback": [],	
 		/**
 		 * Array of callback functions for draw callback functions
 		 *  @type array
@@ -13344,8 +13545,14 @@
 		 *  @default []
 		 */
 		"aoInitComplete": [],
+
+		/**
+		 * Callback functions for when the table is redrawed
+		 *  @type array
+		 *  @default []
+		 */
 	
-	
+		"aoPreRedrawCallback":[],
 		/**
 		 * Callbacks for modifying the settings to be stored for state saving, prior to
 		 * saving state.
