@@ -78,17 +78,53 @@ var RowsGroup = function ( dt, settings )
 		}
 	})
 
-	dt.on('prerender.dt', function ( e, settings) {		
+	dt.on('prerender.dt', function ( e, settings) {			
 		var mg_settings = settings.oInit.multiGrouping;
 		var iColNumber = settings.aoColumns.length;
-		display = settings.aiDisplay;
+		var display = settings.aiDisplay;
 		
 		var shift=0;
 		for (var j=0; j<mg_settings.length; j++) {
 			var current_group = mg_settings[j];
+			var group_managed={};
 			if (current_group.type =='group') { 
+				for (var i=0; i < display.length ; i++) {
+					var item_group = settings.aoData[display[i]]._oaGroup[current_group.data];
+					if (!(item_group in group_managed)) {
+						var item_ordered = [] ;
+						var group = settings.aoGroups[current_group.data][item_group];
+						$(group.data).each( function(k,id) {
+							var order = display.indexOf(id); 
+							if (order != -1)
+								item_ordered.push([id,order]);
+						});						
+						
+						if (item_ordered.length ) {
+							var cg = settings.aoData[item_ordered[0][0]]._oaGroup[current_group.data];
+							var ginfo = settings.aoGroups[current_group.data][cg];
+							var gname = settings.aoData[item_ordered[0][0]]._aData.ha_name;
+
+							if ( item_ordered.length >= current_group["min-size"]) {								
+								if ("start-label" in ginfo) {
+									var node = $('<tr/>',{'class':'group-start'}).append($('<td/>',{'colspan':iColNumber}).html(ginfo["start-label"]));
+									settings.anRows.splice(item_ordered[0][1]+shift , 0 , node.get(0));
+									shift++;
+								}
+
+								if ("end-label" in ginfo) {
+									var node = $('<tr/>',{'class':'group-end'}).append($('<td/>',{'colspan':iColNumber}).html(ginfo["end-label"]));
+									settings.anRows.splice(item_ordered[item_ordered.length-1][1]+shift+1 , 0 , node.get(0));
+									shift++;
+								}
+							}
+						}
+						//insert in array so that no double insert items						
+						group_managed[item_group]=true;;	
+
+					}
+				}
 				//create header and footer for each group
-				var cols = settings.aoGroups[current_group.data];				
+				/*var cols = settings.aoGroups[current_group.data];				
 				$(cols).each( function(i,groups) {
 					
 					for (var group in groups) {
@@ -98,7 +134,7 @@ var RowsGroup = function ( dt, settings )
 							$(groups[group].data).each(function(k,id){
 								var order = display.indexOf(id); 
 								if (order != -1)
-									item_ordered.push([id,display.indexOf(id)]);
+									item_ordered.push([id,order]);
 							});
 
 							item_ordered.sort( function(a, b) {
@@ -108,8 +144,19 @@ var RowsGroup = function ( dt, settings )
 							if (item_ordered.length ) {
 
 								var cg = settings.aoData[item_ordered[0][0]]._oaGroup[current_group.data];
-								var ginfo = settings.aoGroups[current_group.data][cg];								
+								var ginfo = settings.aoGroups[current_group.data][cg];
+								var gname = settings.aoData[item_ordered[0][0]]._aData.ha_name;
+								if (gname == "LRPWCM1W") {
+									console.log(gname + "> " + item_ordered[0][1]  + " - " + item_ordered[0][0] );
+								}
+								
+
 								if ( item_ordered.length >= current_group["min-size"]) {
+									if (gname == "LRPWCM1W") {
+										console.log("entered " + shift);
+										console.log(settings.anRows);
+									}
+									
 									if ("start-label" in ginfo) {
 										var node = $('<tr/>',{'class':'group-start'}).append($('<td/>',{'colspan':iColNumber}).html(ginfo["start-label"]));
 										settings.anRows.splice(item_ordered[0][1]+shift , 0 , node.get(0));
@@ -126,7 +173,7 @@ var RowsGroup = function ( dt, settings )
 					    }
 					}
 					
-				});
+				});*/
 
 			}			
 		}
